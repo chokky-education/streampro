@@ -65,7 +65,10 @@ export default function MyBookingsPage() {
 
                                 <div className="grid grid-2" style={{ gap: 'var(--space-md)' }}>
                                     <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-sm)', color: 'var(--text-secondary)', fontSize: 'var(--font-size-sm)' }}>
-                                        <CalendarDays size={16} /> {booking.date}
+                                        <CalendarDays size={16} />
+                                        {booking.endDate && booking.endDate !== booking.date
+                                            ? <span>{booking.date} — {booking.endDate} <strong style={{ color: 'var(--accent-primary)' }}>({booking.numDays} วัน)</strong></span>
+                                            : booking.date}
                                     </div>
                                     <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-sm)', color: 'var(--text-secondary)', fontSize: 'var(--font-size-sm)' }}>
                                         <Clock size={16} /> {booking.time} - {booking.endTime}

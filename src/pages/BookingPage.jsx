@@ -11,7 +11,9 @@ export default function BookingPage() {
     const navigate = useNavigate();
 
     const [currentMonth, setCurrentMonth] = useState(new Date());
-    const [selectedDate, setSelectedDate] = useState(null);
+    const [startDate, setStartDate] = useState(null);
+    const [endDate, setEndDate] = useState(null);
+    const [hoverDate, setHoverDate] = useState(null);
     const [selectedTime, setSelectedTime] = useState(null);
     const [selectedEndTime, setSelectedEndTime] = useState(null);
     const [selectedEquipment, setSelectedEquipment] = useState([]);
@@ -21,6 +23,14 @@ export default function BookingPage() {
 
     const year = currentMonth.getFullYear();
     const month = currentMonth.getMonth();
+
+    // Calculate number of days selected
+    const numDays = useMemo(() => {
+        if (!startDate) return 0;
+        if (!endDate) return 1;
+        const diffTime = Math.abs(endDate - startDate);
+        return Math.floor(diffTime / (1000 * 60 * 60 * 24)) + 1;
+    }, [startDate, endDate]);
 
     const days = useMemo(() => {
         const firstDay = new Date(year, month, 1).getDay();
@@ -49,11 +59,13 @@ export default function BookingPage() {
 
     const dayNames = ['อา', 'จ', 'อ', 'พ', 'พฤ', 'ศ', 'ส'];
 
-    const totalPrice = selectedEquipment.reduce((sum, id) => {
+    // Price for equipment per day × number of days
+    const pricePerDay = selectedEquipment.reduce((sum, id) => {
         const eq = equipmentSets.find(e => e.id === id);
         return sum + (eq?.price || 0);
     }, 0);
 
+    const totalPrice = pricePerDay * (numDays || 1);
     const deposit = Math.ceil(totalPrice * 0.3);
 
     const isToday = (dayObj) => {
@@ -62,9 +74,74 @@ export default function BookingPage() {
         return dayObj.date.toDateString() === today.toDateString();
     };
 
-    const isSelected = (dayObj) => {
-        if (!dayObj.date || !selectedDate) return false;
-        return dayObj.date.toDateString() === selectedDate.toDateString();
+    // Check if a date is the start or end of the range
+    const isStart = (dayObj) => {
+        if (!dayObj.date || !startDate) return false;
+        return dayObj.date.toDateString() === startDate.toDateString();
+    };
+
+    const isEnd = (dayObj) => {
+        if (!dayObj.date || !endDate) return false;
+        return dayObj.date.toDateString() === endDate.toDateString();
+    };
+
+    // Check if a date is in the selected range
+    const isInRange = (dayObj) => {
+        if (!dayObj.date || !startDate) return false;
+        const rangeEnd = endDate || hoverDate;
+        if (!rangeEnd) return false;
+        const min = startDate < rangeEnd ? startDate : rangeEnd;
+        const max = startDate < rangeEnd ? rangeEnd : startDate;
+        return dayObj.date >= min && dayObj.date <= max;
+    };
+
+    // Handle date click for range selection
+    const handleDateClick = (dayObj) => {
+        if (dayObj.otherMonth || dayObj.past) return;
+
+        if (!startDate || (startDate && endDate)) {
+            // First click or reset: set start date
+            setStartDate(dayObj.date);
+            setEndDate(null);
+        } else {
+            // Second click: set end date
+            if (dayObj.date < startDate) {
+                setEndDate(startDate);
+                setStartDate(dayObj.date);
+            } else {
+                setEndDate(dayObj.date);
+            }
+        }
+    };
+
+    // Format date range for display
+    const formatDateRange = () => {
+        if (!startDate) return '-';
+        const opts = { year: 'numeric', month: 'long', day: 'numeric' };
+        const start = startDate.toLocaleDateString('th-TH', opts);
+        if (!endDate || startDate.toDateString() === endDate.toDateString()) return start;
+        const end = endDate.toLocaleDateString('th-TH', opts);
+        return `${start} — ${end}`;
+    };
+
+    const formatDateShort = () => {
+        if (!startDate) return '-';
+        const s = startDate.toLocaleDateString('th-TH');
+        if (!endDate || startDate.toDateString() === endDate.toDateString()) return s;
+        return `${s} - ${endDate.toLocaleDateString('th-TH')}`;
+    };
+
+    // Get all dates in range as ISO strings
+    const getDateList = () => {
+        if (!startDate) return [];
+        const dates = [];
+        const end = endDate || startDate;
+        const d = new Date(startDate);
+        while (d <= end) {
+            dates.push(new Date(d).toISOString().split('T')[0]);
+            d.setDate(d.getDate() + 1);
+        }
+        return dates;
     };
 
     const handleConfirmBooking = () => {
@@ -74,11 +151,15 @@ export default function BookingPage() {
         }
         const booking = addBooking({
             userId: user.id,
-            date: selectedDate.toISOString().split('T')[0],
+            date: startDate.toISOString().split('T')[0],
+            endDate: endDate ? endDate.toISOString().split('T')[0] : startDate.toISOString().split('T')[0],
+            dates: getDateList(),
+            numDays,
             time: selectedTime,
             endTime: selectedEndTime,
             equipment: selectedEquipment,
             totalPrice,
+            pricePerDay,
             deposit,
             customerName: user.name,
             customerPhone: user.phone || '',
@@ -115,7 +196,7 @@ export default function BookingPage() {
 
             <div className="booking-layout">
                 <div>
-                    {/* Step 1: Calendar */}
+                    {/* Step 1: Calendar with date range */}
                     {step === 1 && (
                         <div className="calendar animate-fade-in">
                             <div className="calendar-header">
@@ -127,26 +208,82 @@ export default function BookingPage() {
                                     <ChevronRight size={20} />
                                 </button>
                             </div>
+
+                            {/* Instruction hint */}
+                            <div style={{
+                                textAlign: 'center', padding: 'var(--space-sm) var(--space-lg)',
+                                fontSize: 'var(--font-size-sm)', color: 'var(--text-muted)',
+                                background: 'rgba(124,58,237,0.06)', borderRadius: 'var(--radius-md)',
+                                margin: '0 var(--space-lg) var(--space-sm)'
+                            }}>
+                                💡 คลิกวันแรก แล้วคลิกวันสุดท้าย เพื่อจองหลายวัน
+                            </div>
+
                             <div className="calendar-grid">
                                 {dayNames.map(d => (
                                     <div key={d} className="calendar-day-header">{d}</div>
                                 ))}
-                                {days.map((dayObj, i) => (
-                                    <div
-                                        key={i}
-                                        className={`calendar-day ${dayObj.otherMonth ? 'other-month' : ''} ${dayObj.past ? 'disabled' : ''} ${isToday(dayObj) ? 'today' : ''} ${isSelected(dayObj) ? 'selected' : ''}`}
-                                        onClick={() => !dayObj.otherMonth && !dayObj.past && setSelectedDate(dayObj.date)}
-                                    >
-                                        {dayObj.day}
-                                    </div>
-                                ))}
+                                {days.map((dayObj, i) => {
+                                    const start = isStart(dayObj);
+                                    const end = isEnd(dayObj);
+                                    const inRange = isInRange(dayObj);
+                                    return (
+                                        <div
+                                            key={i}
+                                            className={[
+                                                'calendar-day',
+                                                dayObj.otherMonth ? 'other-month' : '',
+                                                dayObj.past ? 'disabled' : '',
+                                                isToday(dayObj) ? 'today' : '',
+                                                start ? 'range-start' : '',
+                                                end ? 'range-end' : '',
+                                                (start || end) ? 'selected' : '',
+                                                inRange && !start && !end ? 'in-range' : ''
+                                            ].filter(Boolean).join(' ')}
+                                            onClick={() => handleDateClick(dayObj)}
+                                            onMouseEnter={() => {
+                                                if (startDate && !endDate && dayObj.date && !dayObj.otherMonth && !dayObj.past) {
+                                                    setHoverDate(dayObj.date);
+                                                }
+                                            }}
+                                            onMouseLeave={() => setHoverDate(null)}
+                                        >
+                                            {dayObj.day}
+                                        </div>
+                                    );
+                                })}
                             </div>
 
-                            {selectedDate && (
+                            {/* Selected range info */}
+                            {startDate && (
+                                <div style={{
+                                    padding: 'var(--space-md) var(--space-lg)', margin: 'var(--space-sm) var(--space-lg)',
+                                    background: 'rgba(124,58,237,0.1)', borderRadius: 'var(--radius-md)',
+                                    display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 'var(--space-sm)'
+                                }}>
+                                    <div>
+                                        <div style={{ fontSize: 'var(--font-size-sm)', color: 'var(--text-secondary)' }}>
+                                            {endDate && startDate.toDateString() !== endDate.toDateString() ? 'ช่วงวันที่เลือก' : 'วันที่เลือก'}
+                                        </div>
+                                        <div style={{ fontWeight: 700, fontSize: 'var(--font-size-base)' }}>
+                                            {formatDateRange()}
+                                        </div>
+                                    </div>
+                                    <div style={{
+                                        background: 'var(--accent-gradient)', color: 'white',
+                                        padding: 'var(--space-xs) var(--space-md)', borderRadius: 'var(--radius-full)',
+                                        fontWeight: 800, fontSize: 'var(--font-size-lg)', minWidth: 60, textAlign: 'center'
+                                    }}>
+                                        {numDays} วัน
+                                    </div>
+                                </div>
+                            )}
+
+                            {startDate && (
                                 <div style={{ padding: 'var(--space-lg)' }}>
                                     <h3 style={{ marginBottom: 'var(--space-md)', fontSize: 'var(--font-size-base)' }}>
                                         <Clock size={16} style={{ marginRight: 4 }} />
-                                        เลือกเวลาเริ่ม - สิ้นสุด
+                                        เลือกเวลาเริ่ม - สิ้นสุด (ทุกวัน)
                                     </h3>
                                     <div className="time-slots" style={{ marginBottom: 'var(--space-md)' }}>
                                         {timeSlots.map(time => (
@@ -189,6 +326,17 @@ export default function BookingPage() {
                                 <Package size={20} style={{ marginRight: 8 }} />
                                 เลือกชุดอุปกรณ์
                             </h3>
+                            {numDays > 1 && (
+                                <div style={{
+                                    padding: 'var(--space-md)', marginBottom: 'var(--space-lg)',
+                                    background: 'rgba(6,182,212,0.1)', borderRadius: 'var(--radius-md)',
+                                    fontSize: 'var(--font-size-sm)', color: 'var(--accent-secondary)',
+                                    display: 'flex', alignItems: 'center', gap: 'var(--space-sm)'
+                                }}>
+                                    <CalendarDays size={16} />
+                                    ราคาอุปกรณ์จะคำนวณ × {numDays} วัน อัตโนมัติ
+                                </div>
+                            )}
                             <div className="grid grid-2">
                                 {equipmentSets.map(eq => (
                                     <div
@@ -214,9 +362,12 @@ export default function BookingPage() {
                                             {eq.description}
                                         </p>
                                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                                            <span style={{ fontWeight: 800, fontSize: 'var(--font-size-lg)', color: 'var(--accent-primary)' }}>
-                                                ฿{eq.price.toLocaleString()}
-                                            </span>
+                                            <div>
+                                                <span style={{ fontWeight: 800, fontSize: 'var(--font-size-lg)', color: 'var(--accent-primary)' }}>
+                                                    ฿{eq.price.toLocaleString()}
+                                                </span>
+                                                <span style={{ fontSize: 'var(--font-size-xs)', color: 'var(--text-muted)' }}>/วัน</span>
+                                            </div>
                                             <div className="equipment-status">
                                                 <span className={`equipment-status-dot ${eq.available ? 'available' : 'unavailable'}`} />
                                                 {eq.available ? 'ว่าง' : 'ไม่ว่าง'}
@@ -273,11 +424,15 @@ export default function BookingPage() {
                             <div style={{ lineHeight: 2.2 }}>
                                 <div className="booking-item">
                                     <span style={{ color: 'var(--text-secondary)' }}>วันที่</span>
-                                    <strong>{selectedDate?.toLocaleDateString('th-TH', { year: 'numeric', month: 'long', day: 'numeric' })}</strong>
+                                    <strong>{formatDateRange()}</strong>
+                                </div>
+                                <div className="booking-item">
+                                    <span style={{ color: 'var(--text-secondary)' }}>จำนวนวัน</span>
+                                    <strong style={{ color: 'var(--accent-primary)' }}>{numDays} วัน</strong>
                                 </div>
                                 <div className="booking-item">
                                     <span style={{ color: 'var(--text-secondary)' }}>เวลา</span>
-                                    <strong>{selectedTime} - {selectedEndTime}</strong>
+                                    <strong>{selectedTime} - {selectedEndTime} (ทุกวัน)</strong>
                                 </div>
                                 <div className="booking-item">
                                     <span style={{ color: 'var(--text-secondary)' }}>ประเภทงาน</span>
@@ -292,12 +447,22 @@ export default function BookingPage() {
                                     <div style={{ textAlign: 'right' }}>
                                         {selectedEquipment.map(id => {
                                             const eq = equipmentSets.find(e => e.id === id);
-                                            return <div key={id}>{eq?.name} - ฿{eq?.price.toLocaleString()}</div>;
+                                            return <div key={id}>{eq?.name} - ฿{eq?.price.toLocaleString()}/วัน</div>;
                                         })}
                                     </div>
                                 </div>
+
+                                {numDays > 1 && (
+                                    <div className="booking-item">
+                                        <span style={{ color: 'var(--text-secondary)' }}>ราคาต่อวัน</span>
+                                        <strong>฿{pricePerDay.toLocaleString()}</strong>
+                                    </div>
+                                )}
+
                                 <div className="booking-item" style={{ borderBottom: 'none' }}>
-                                    <span style={{ fontSize: 'var(--font-size-lg)', fontWeight: 700 }}>รวมทั้งสิ้น</span>
+                                    <span style={{ fontSize: 'var(--font-size-lg)', fontWeight: 700 }}>
+                                        รวมทั้งสิ้น {numDays > 1 ? `(${numDays} วัน)` : ''}
+                                    </span>
                                     <span className="expense-total">฿{totalPrice.toLocaleString()}</span>
                                 </div>
                                 <div className="booking-item" style={{ borderBottom: 'none' }}>
@@ -321,7 +486,18 @@ export default function BookingPage() {
                                 <CalendarDays size={14} style={{ marginRight: 4 }} /> วันที่
                             </span>
                             <span style={{ fontSize: 'var(--font-size-sm)' }}>
-                                {selectedDate ? selectedDate.toLocaleDateString('th-TH') : '-'}
+                                {formatDateShort()}
+                            </span>
+                        </div>
+                        <div className="booking-item">
+                            <span style={{ color: 'var(--text-secondary)', fontSize: 'var(--font-size-sm)' }}>
+                                📅 จำนวนวัน
+                            </span>
+                            <span style={{
+                                fontSize: 'var(--font-size-sm)', fontWeight: 700,
+                                color: numDays > 1 ? 'var(--accent-primary)' : 'var(--text-primary)'
+                            }}>
+                                {numDays || '-'} วัน
                             </span>
                         </div>
                         <div className="booking-item">
@@ -340,6 +516,16 @@ export default function BookingPage() {
                                 {selectedEquipment.length} รายการ
                             </span>
                         </div>
+                        {numDays > 1 && (
+                            <div className="booking-item">
+                                <span style={{ color: 'var(--text-secondary)', fontSize: 'var(--font-size-sm)' }}>
+                                    ราคา/วัน
+                                </span>
+                                <span style={{ fontSize: 'var(--font-size-sm)' }}>
+                                    ฿{pricePerDay.toLocaleString()}
+                                </span>
+                            </div>
+                        )}
                         <div style={{
                             marginTop: 'var(--space-lg)', paddingTop: 'var(--space-lg)',
                             borderTop: '1px solid var(--border)',
@@ -361,7 +547,7 @@ export default function BookingPage() {
                                 className="btn btn-primary"
                                 style={{ flex: 1 }}
                                 disabled={
-                                    (step === 1 && (!selectedDate || !selectedTime)) ||
+                                    (step === 1 && (!startDate || !selectedTime)) ||
                                     (step === 2 && selectedEquipment.length === 0)
                                 }
                                 onClick={() => setStep(s => s + 1)}
